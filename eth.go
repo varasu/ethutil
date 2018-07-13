@@ -49,6 +49,13 @@ func digitHash(digit *big.Int) []byte {
 func (u *Util) cmdDelta(args []string) error {
 	if len(args) >= 1 {
 		switch args[0] {
+		case "filled":
+			filled, err := u.d.AmountFilled(u.order.PureTradeParams())
+			if err != nil {
+				u.logf("%s", err)
+				return nil
+			}
+			u.logf("Amount Filled: %s", filled.String())
 		case "hash":
 			if len(args) == 3 {
 				digit, _ := new(big.Int).SetString(args[1], 10)
@@ -68,6 +75,16 @@ func (u *Util) cmdDelta(args []string) error {
 			}
 		case "trade":
 			o := u.order
+
+			if len(args) == 2 {
+				switch args[1] {
+				case "sell":
+					o = u.orderSell
+				case "buy":
+					o = u.orderBuy
+				}
+			}
+
 			amount := o.GetAmountGet()
 			u.logf("%s", amount.String())
 			txs, err := u.Trade(amount, o)
@@ -112,6 +129,7 @@ func (u *Util) cmdDelta(args []string) error {
 
 					//u.logf("%+v", order)
 					u.order = order
+					u.orderSell = order
 					u.logf("%+v\n%+v", u.order, u.order.GetC())
 
 					ke, sha := u.CheckSignatures(tge, age, tgi, agi, exp, nonce, u.ma.Address)
@@ -137,6 +155,7 @@ func (u *Util) cmdDelta(args []string) error {
 					}
 
 					u.order = order
+					u.orderBuy = order
 					u.logf("%+v\n%+v", u.order, u.order.GetC())
 
 					ke, sha := u.CheckSignatures(tge, age, tgi, agi, exp, nonce, u.ma.Address)
@@ -149,15 +168,31 @@ func (u *Util) cmdDelta(args []string) error {
 			u.logf("Delta Admin: %s", admin.String())
 		case "balance":
 			ba := common.Address{}
-			if len(args) == 2 {
-				ba = BOEKI_CONTRACT
-				if args[1] != "boeki" {
+			var other common.Address
+			if len(args) >= 2 {
+				switch args[1] {
+				case "boeki":
+					ba = BOEKI_CONTRACT
+				case "proxy":
+					ba = PROXY_CONTRACT
+				default:
 					ba = common.HexToAddress(args[1])
 				}
 			} else {
 				ba = u.ma.Address
 			}
+			if len(args) >= 3 {
+				other = common.HexToAddress(args[2])
+			}
 			ether := u.BalanceOf(ETHER_TOKEN, ba).String()
+			if *mainNetwork {
+				u.logf("delta balances (%s):", ba.String())
+				u.logf("ETH: %s", ether)
+				if len(args) >= 3 {
+					u.logf("%s: %s", other.String(), u.BalanceOf(other, ba).String())
+				}
+				return nil
+			}
 			kusari := u.BalanceOf(KUSARI_TOKEN, ba).String()
 			chisai := u.BalanceOf(CHISAI_TOKEN, ba).String()
 			u.logf("delta balances (%s):", ba.String())
@@ -178,6 +213,8 @@ func (u *Util) cmdDelta(args []string) error {
 				u.logf("%s", txs.Hash().String())
 			}
 		case "withdraw":
+			u.SetGasLimit(40000)
+			u.logf("gasLimit set to 40 000 for this operation.")
 			if len(args) == 2 {
 				amount, err := ethToWei(args[1])
 				if err != nil {
@@ -189,6 +226,7 @@ func (u *Util) cmdDelta(args []string) error {
 					u.logf("%s", err)
 					return nil
 				}
+				u.AddPending(txs)
 				u.logf("%s", txs)
 				u.logf("%s", txs.Hash().String())
 			}
@@ -346,7 +384,11 @@ func (u *Util) cmdToken(args []string) error {
 }
 
 func (u *Util) privateKey() (*ecdsa.PrivateKey, error) {
-	jkey, err := u.ks.Export(*u.ma, "fun", "")
+	pass := ""
+	if *mainNetwork {
+		pass = ""
+	}
+	jkey, err := u.ks.Export(*u.ma, pass, "")
 	if err != nil {
 		return nil, err
 	}
@@ -489,6 +531,8 @@ func (u *Util) Withdraw(amount *big.Int) (*types.Transaction, error) {
 func (u *Util) cmdEth(args []string) error {
 	if len(args) >= 1 {
 		switch args[0] {
+		case "gas":
+			//
 		case "set":
 			if len(args) == 3 {
 				switch args[1] {
@@ -504,6 +548,11 @@ func (u *Util) cmdEth(args []string) error {
 			}
 		case "balance":
 			a := u.ma.Address
+			if len(args) == 2 {
+				if args[1] == "boeki" {
+					a = BOEKI_CONTRACT
+				}
+			}
 			b, _ := u.BalanceEth(a)
 			u.logf("%s: %s", a.String(), b.String())
 		case "deploy":
@@ -581,7 +630,9 @@ func (u *Util) cmdEth(args []string) error {
 						u.logf("sendtransaction: %s", err)
 						return nil
 					}
+					u.AddPending(tx)
 					u.logf("%s", tx)
+					u.logf("%s", tx.Hash().String())
 				}
 			}
 		default:
@@ -654,13 +705,14 @@ func (u *Util) Trade(amount *big.Int, order *delta.Order) (*types.Transaction, e
 	}
 	u.logf("Available Volume: %d", avalVolume)
 
-	valid, err := u.d.TestTrade(order.TestTradeParams(amount, u.ma.Address))
-	if err != nil {
-		return nil, err
-	}
-	if !valid {
-		return nil, errors.New("Do not trade this order.")
-	}
+	/*
+		valid, err := u.d.TestTrade(order.TestTradeParams(amount, u.ma.Address))
+		if err != nil {
+			return nil, err
+		}
+		if !valid {
+			return nil, errors.New("Do not trade this order.")
+		}*/
 
 	return u.d.Trade(order.TradeParams(nil, amount))
 }

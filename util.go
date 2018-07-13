@@ -27,16 +27,7 @@ import (
 
 var keystoreDir = flag.String("ksd", "/data/eth/keystore", "keystore dir")
 var provider = flag.String("p", "", "provider url")
-
-var GREET_CONTRACT = common.HexToAddress("0x22ce97cc8331ab2369da987f367a44aab5dc479d")
-
-//TODO
-var BOEKI_CONTRACT = common.HexToAddress("0x0114401d5466154a17420608a4130324ffd1d8a2")
-
-var KUSARI_TOKEN = common.HexToAddress("0xdc2ecbf8c6532f5bb3c289c02e73bce79869ac5b")
-var DELTA_CONTRACT = common.HexToAddress("0x83d1da924a5fac25a469c2b9bc651ca619046565")
-var CHISAI_TOKEN = common.HexToAddress("0xce95c5e284308468486020cdf2a572f0ef70be7b")
-var ETHER_TOKEN = common.Address{}
+var mainNetwork = flag.Bool("main", false, "enable main network")
 
 type command struct {
 	run      func(*Util, []string) error
@@ -44,6 +35,7 @@ type command struct {
 }
 
 var commands = map[string]command{
+	"logid":   command{run: (*Util).cmdLogid},
 	"boeki":   command{run: (*Util).cmdBoeki},
 	"token":   command{run: (*Util).cmdToken},
 	"delta":   command{run: (*Util).cmdDelta},
@@ -85,11 +77,17 @@ type Util struct {
 	// order for trading
 	order *delta.Order
 
+	orderSell *delta.Order
+	orderBuy  *delta.Order
+
 	// testing Greeter smart contract
 	greet *Greet
 
 	// Boeki Smart contract
 	boeki *Boekismart
+	proxy *Boekiproxy
+
+	logid *Logid
 
 	token *chain.StandardToken
 	taddr common.Address
@@ -177,6 +175,11 @@ func main() {
 	var err error
 	flag.Parse()
 
+	// enable main network
+	if *mainNetwork {
+		log.Printf("Main Network enabled.\n")
+	}
+
 	util := &Util{}
 
 	//ch
@@ -203,8 +206,22 @@ func main() {
 		return
 	}
 
+	// new logid smart
+	util.logid, err = NewLogid(LOGID_ADDR, util.c)
+	if err != nil {
+		log.Printf("%s\n", err)
+		return
+	}
+
 	// Boeki Smart contract
 	util.boeki, err = NewBoekismart(BOEKI_CONTRACT, util.c)
+	if err != nil {
+		log.Printf("%s\n", err)
+		return
+	}
+
+	// Boeki Proxy
+	util.proxy, err = NewBoekiproxy(PROXY_CONTRACT, util.c)
 	if err != nil {
 		log.Printf("%s\n", err)
 		return
@@ -225,8 +242,9 @@ func main() {
 		return
 	}
 
+	// defaults for sending value: ether
 	util.SetGasLimit(21000)
-	util.SetGasPriceGwei("4")
+	util.SetGasPriceGwei("1")
 
 	// NewHead
 	go util.HeadWriter()

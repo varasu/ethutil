@@ -31,14 +31,23 @@ func (u *Util) HeadWriter() {
 			u.logf("%s ended.", name)
 			return
 		case h := <-ch:
+			if u.pending == nil {
+				continue
+			}
 			block, _ := u.d.BlockNumber(h.Number)
 			for _, tx := range block.Transactions() {
 				if reflect.DeepEqual(tx.Hash(), u.Pending().Hash()) {
+					if tx == nil {
+						u.logf("Nil transaction")
+						continue
+					}
 					r, _ := u.Receipt(tx.Hash())
 					u.logf("status: %d, cumulativeGasUsed: %d, gasUsed: %d", r.Status, r.CumulativeGasUsed, r.GasUsed)
 					if !reflect.DeepEqual(r.ContractAddress, common.Address{}) {
 						u.logf("Contract Address: %s", r.ContractAddress.String())
 					}
+					u.pending = nil
+					continue
 				}
 			}
 		}
