@@ -1,3 +1,3 @@
-ethutil - small tool for interacting with ethereum.
+ethutil - small tool for interacting with ethereum blockchain.
 
 
